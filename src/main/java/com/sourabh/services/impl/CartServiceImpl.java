@@ -1,0 +1,239 @@
+package com.sourabh.services.impl;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+import com.sourabh.services.CartItemService;
+import com.sourabh.services.CartService;
+import com.sourabh.services.LoginLogoutService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.sourabh.exception.CartItemNotFound;
+import com.sourabh.exception.CustomerNotFoundException;
+import com.sourabh.exception.LoginException;
+import com.sourabh.entities.Cart;
+import com.sourabh.dtos.CartDTO;
+import com.sourabh.entities.CartItem;
+import com.sourabh.entities.Customer;
+import com.sourabh.entities.UserSession;
+import com.sourabh.repositories.CartRepository;
+import com.sourabh.repositories.CustomerRepository;
+import com.sourabh.repositories.ProductRepository;
+import com.sourabh.repositories.SessionRepository;
+
+@Service
+public class CartServiceImpl implements CartService {
+
+	@Autowired
+	private CartRepository cartRepository;
+	
+	@Autowired
+	private SessionRepository sessionRepository;
+	
+	@Autowired
+	private CartItemService cartItemService;
+	
+	
+	@Autowired
+	private CustomerRepository customerRepository;
+	
+	@Autowired
+	private LoginLogoutService loginService;
+	
+	
+	@Autowired
+	private ProductRepository productRepository;
+
+	@Override
+	public Cart addProductToCart(CartDTO cartDto, String token) {
+
+		
+		if(token.contains("customer") == false) {
+			throw new LoginException("Invalid session token for customer");
+		}
+		
+		loginService.checkTokenStatus(token);
+		
+		UserSession user = sessionRepository.findByToken(token).get();
+		
+		Optional<Customer> opt = customerRepository.findById(user.getUserId());
+		
+		if(opt.isEmpty())
+			throw new CustomerNotFoundException("Customer does not exist");
+		
+		Customer existingCustomer = opt.get();
+		
+		Cart customerCart = existingCustomer.getCustomerCart();
+		
+		List<CartItem> cartItems = customerCart.getCartItems();
+		
+		CartItem item = cartItemService.createItemforCart(cartDto);
+		
+		
+		if(cartItems.size() == 0) {
+			cartItems.add(item);
+			customerCart.setCartTotal(item.getCartProduct().getPrice());
+		}
+		else {
+			boolean flag = false;
+			for(CartItem c: cartItems) {
+				if(c.getCartProduct().getProductId() == cartDto.getProductId()) {
+					c.setCartItemQuantity(c.getCartItemQuantity() + 1);
+					customerCart.setCartTotal(customerCart.getCartTotal() + c.getCartProduct().getPrice());
+					flag = true;
+				}
+			}
+			if(!flag) {
+				cartItems.add(item);
+				customerCart.setCartTotal(customerCart.getCartTotal() + item.getCartProduct().getPrice());
+			}
+		}
+		
+		return cartRepository.save(existingCustomer.getCustomerCart());
+		
+
+}
+	
+	
+
+	@Override
+	public Cart getCartProduct(String token) {
+		
+		System.out.println("Inside get cart");
+		
+		if(token.contains("customer") == false) {
+			throw new LoginException("Invalid session token for customer");
+		}
+		
+		loginService.checkTokenStatus(token);
+		
+		UserSession user = sessionRepository.findByToken(token).get();
+		
+		Optional<Customer> opt = customerRepository.findById(user.getUserId());
+		
+		
+		if(opt.isEmpty())
+			throw new CustomerNotFoundException("Customer does not exist");
+		
+		Customer existingCustomer = opt.get();
+		
+//		System.out.println(existingCustomer);
+//		
+//		System.out.println(existingCustomer.getCustomerCart());
+//		
+//		System.out.println("Here reached");
+//		
+		Integer cartId = existingCustomer.getCustomerCart().getCartId();
+		
+		
+		Optional<Cart> optCart= cartRepository.findById(cartId);
+		
+		if(optCart.isEmpty()) {
+			throw new CartItemNotFound("cart Not found by Id");
+		}
+//		return optCart.get().getProducts();
+		
+		return optCart.get();
+//		return cart.getProducts();
+	}
+
+	
+	
+	@Override
+	public Cart removeProductFromCart(CartDTO cartDto, String token) {
+		if(token.contains("customer") == false) {
+			throw new LoginException("Invalid session token for customer");
+		}
+		
+		loginService.checkTokenStatus(token);
+		
+		UserSession user = sessionRepository.findByToken(token).get();
+		
+		Optional<Customer> opt = customerRepository.findById(user.getUserId());
+		
+		if(opt.isEmpty())
+			throw new CustomerNotFoundException("Customer does not exist");
+		
+		Customer existingCustomer = opt.get();
+		
+		Cart customerCart = existingCustomer.getCustomerCart();
+		
+		List<CartItem> cartItems = customerCart.getCartItems();
+		
+		if(cartItems.size() == 0) {
+			throw new CartItemNotFound("Cart is empty");
+		}
+		
+		
+		boolean flag = false;
+		
+		for(CartItem c: cartItems) {
+			System.out.println("Item" + c.getCartProduct());
+			if(c.getCartProduct().getProductId() == cartDto.getProductId()) {
+				c.setCartItemQuantity(c.getCartItemQuantity() - 1);
+				
+				customerCart.setCartTotal(customerCart.getCartTotal() - c.getCartProduct().getPrice());
+				if(c.getCartItemQuantity() == 0) {
+					
+					cartItems.remove(c);
+
+					
+					return cartRepository.save(customerCart);
+				}
+				flag = true;
+			}
+		}
+		
+		if(!flag) {
+			throw new CartItemNotFound("Product not added to cart");
+		}
+		
+		if(cartItems.size() == 0) {
+			cartRepository.save(customerCart);
+			throw new CartItemNotFound("Cart is empty now");
+		}
+		
+		return cartRepository.save(customerCart);
+	}
+	
+	
+	
+	
+	// Method to clear entire cart
+	
+	@Override
+	public Cart clearCart(String token) {
+		
+		if(token.contains("customer") == false) {
+			throw new LoginException("Invalid session token for customer");
+		}
+		
+		loginService.checkTokenStatus(token);
+		
+		UserSession user = sessionRepository.findByToken(token).get();
+		
+		Optional<Customer> opt = customerRepository.findById(user.getUserId());
+		
+		if(opt.isEmpty())
+			throw new CustomerNotFoundException("Customer does not exist");
+		
+		Customer existingCustomer = opt.get();
+		
+		Cart customerCart = existingCustomer.getCustomerCart();
+		
+		if(customerCart.getCartItems().size() == 0) {
+			throw new CartItemNotFound("Cart already empty");
+		}
+		
+		List<CartItem> emptyCart = new ArrayList<>();
+		
+		customerCart.setCartItems(emptyCart);
+		
+		customerCart.setCartTotal(0.0);
+		
+		return cartRepository.save(customerCart);
+	}
+	
+}
